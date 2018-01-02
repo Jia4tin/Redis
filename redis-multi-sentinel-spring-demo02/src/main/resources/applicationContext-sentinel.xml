@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+			http://www.springframework.org/schema/beans/spring-beans-4.1.xsd
+			http://www.springframework.org/schema/context
+			http://www.springframework.org/schema/context/spring-context-4.1.xsd"
+	default-autowire="byName">
+	<!--以下为sentinel 多redis配置 -->
+	<!-- 加载配置文件 -->
+	<context:property-placeholder location="classpath:application.properties" />
+
+	<bean id="jedisPoolConfig" class="redis.clients.jedis.JedisPoolConfig">
+		<property name="maxTotal" value="2048" />
+		<property name="maxIdle" value="200" />
+		<property name="numTestsPerEvictionRun" value="1024" />
+
+		<property name="minEvictableIdleTimeMillis" value="-1" />
+		<property name="softMinEvictableIdleTimeMillis" value="10000" />
+		<property name="maxWaitMillis" value="1500" />
+		<property name="testOnReturn" value="false" />
+		<property name="jmxEnabled" value="true" />
+		<property name="blockWhenExhausted" value="false" />
+		<!-- 三个配置配合设置，可以起到以下三点作用： (1)、保证每次获取的连接都是可用的 (2)、定时清理失效连接，补充新连接，提高效率 -->
+		<property name="testOnBorrow" value="true" />
+		<property name="testWhileIdle" value="true" />
+		<property name="timeBetweenEvictionRunsMillis" value="30000" />
+	</bean>
+
+	<!-- 采用sentinel模式的redis:
+	     redis server sentinel配置：http://blog.csdn.net/liuchuanhong1/article/details/53206028
+	              此处只需要配置master节点名称以及三个sentinel（哨兵）即可，JedisSentinelPool.initSentinels执行时，
+	              遍历多个sentinels，一个一个连接到sentinel，去询问关于masterName的消息，
+	              可以看到是通过jedis.sentinelGetMasterAddrByName()方法去连接sentinel，并询问当前的master的地址
+	             参考地址：https://segmentfault.com/a/1190000002690506
+	 -->
+	<bean id="redisSentinelConfiguration"
+		class="org.springframework.data.redis.connection.RedisSentinelConfiguration">
+		<property name="master">
+			<bean class="org.springframework.data.redis.connection.RedisNode">
+			    <!--master名称 sentinel.conf里面配置的主节点名称:
+			        name的值必须和redis server端sentinel（sentinel.conf）配置的值一致
+			      -->
+				<property name="name" value="redis-sentinel" />
+			</bean>
+		</property>
+		<!--此处为sentinel(哨兵配置，非redis server配置) -->
+		<!-- sentinel为投票模式,至少设置三台reis -->
+		<property name="sentinels">
+			<set>
+				<bean class="org.springframework.data.redis.connection.RedisNode">
+					<constructor-arg name="host" value="127.0.0.1" />
+					<constructor-arg name="port" value="26379" />
+				</bean>
+				
+				<bean class="org.springframework.data.redis.connection.RedisNode">
+					<constructor-arg name="host" value="127.0.0.1" />
+					<constructor-arg name="port" value="26479" />
+				</bean>
+				<bean class="org.springframework.data.redis.connection.RedisNode ">
+					<constructor-arg name="host" value="127.0.0.1" />
+					<constructor-arg name="port" value="26579" />
+				</bean>
+			</set>
+		</property>
+	</bean>
+	<bean id="sentinelJedisConnectionFactory"
+		class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory">
+		<property name="poolConfig" ref="jedisPoolConfig" />
+		<constructor-arg name="sentinelConfig" ref="redisSentinelConfiguration" />
+	</bean>
+	<bean id="redisTemplate" class="org.springframework.data.redis.core.RedisTemplate">
+		<property name="connectionFactory" ref="sentinelJedisConnectionFactory" />
+		<property name="keySerializer">
+			<bean class="org.springframework.data.redis.serializer.StringRedisSerializer" />
+		</property>
+		<property name="valueSerializer">
+			<bean class="org.springframework.data.redis.serializer.JdkSerializationRedisSerializer" />
+		</property>
+		<!-- <property name="hashKeySerializer">
+			<bean class="org.springframework.data.redis.serializer.StringRedisSerializer" />
+		</property>
+		<property name="hashValueSerializer">
+			<bean class="org.springframework.data.redis.serializer.StringRedisSerializer" />
+		</property> -->
+	</bean>
+</beans>
